@@ -1154,14 +1154,9 @@ function createHttpBackendMock($rootScope, $timeout, $delegate, $browser) {
       return handleResponse;
 
       function handleResponse() {
-        var response = wrapped.response({
-          method:  method,
-          url:     url,
-          data:    data,
-          headers: headers,
-          params:  angular.extend({}, switchRouteMatcher(url.split('?')[0], wrapped.path),
-                                      parseKeyValue(url.split('?')[1]))
-        });
+        var params = angular.extend({}, switchRouteMatcher(url.split('?')[0], wrapped.path),
+                                        parseKeyValue(url.split('?')[1]));
+        var response = wrapped.response(method, url, data, headers, params);
         xhr.$$respHeaders = response[2];
         callback(copy(response[0]), copy(response[1]), xhr.getAllResponseHeaders(),
                  copy(response[3] || ''));
