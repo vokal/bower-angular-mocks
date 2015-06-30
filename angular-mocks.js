@@ -1,5 +1,5 @@
 /**
- * @license AngularJS v1.4.0-build.3905+sha.4c613a2
+ * @license AngularJS v1.4.2-build.4087+sha.e51024e
  * (c) 2010-2015 Google, Inc. http://angularjs.org
  * License: MIT
  */
@@ -64,6 +64,7 @@ angular.mock.$Browser = function() {
     return listener;
   };
 
+  self.$$applicationDestroyed = angular.noop;
   self.$$checkUrlChange = angular.noop;
 
   self.deferredFns = [];
@@ -770,13 +771,14 @@ angular.mock.animate = angular.module('ngAnimateMock', ['ng'])
       };
     });
 
-    $provide.decorator('$animate', ['$delegate', '$$asyncCallback', '$timeout', '$browser',
-                            function($delegate,   $$asyncCallback,   $timeout,   $browser) {
+    $provide.decorator('$animate', ['$delegate', '$$asyncCallback', '$timeout', '$browser', '$$rAF',
+                            function($delegate,   $$asyncCallback,   $timeout,   $browser,   $$rAF) {
       var animate = {
         queue: [],
         cancel: $delegate.cancel,
         enabled: $delegate.enabled,
         triggerCallbackEvents: function() {
+          $$rAF.flush();
           $$asyncCallback.flush();
         },
         triggerCallbackPromise: function() {
@@ -1088,7 +1090,7 @@ angular.mock.dump = function(object) {
          $httpBackend.flush();
 
          $httpBackend.expectPOST('/add-msg.py', undefined, function(headers) {
-           // check if the header was send, if it wasn't the expectation won't
+           // check if the header was sent, if it wasn't the expectation won't
            // match the request and the test will fail
            return headers['Authorization'] == 'xxx';
          }).respond(201, '');
@@ -1853,7 +1855,7 @@ angular.mock.$RAFDecorator = ['$delegate', function($delegate) {
       queue[i]();
     }
 
-    queue = [];
+    queue = queue.slice(i);
   };
 
   return rafFn;
