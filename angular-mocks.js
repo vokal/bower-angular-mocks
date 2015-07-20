@@ -1152,9 +1152,7 @@ function createHttpBackendMock($rootScope, $timeout, $delegate, $browser) {
       return handleResponse;
 
       function handleResponse() {
-        var params = angular.extend({}, switchRouteMatcher(url.split('?')[0], wrapped.path),
-                                        parseKeyValue(url.split('?')[1]));
-        var response = wrapped.response(method, url, data, headers, params);
+        var response = wrapped.response(method, url, data, headers, wrapped.params(url));
         xhr.$$respHeaders = response[2];
         callback(copy(response[0]), copy(response[1]), xhr.getAllResponseHeaders(),
                  copy(response[3] || ''));
@@ -1235,8 +1233,8 @@ function createHttpBackendMock($rootScope, $timeout, $delegate, $browser) {
    *    headers (Object), and the text for the status (string). The respond method returns the
    *    `requestHandler` object for possible overrides.
    */
-  $httpBackend.when = function(method, url, data, headers) {
-    var definition = new MockHttpExpectation(method, url, data, headers),
+  $httpBackend.when = function(method, url, data, headers, keys) {
+    var definition = new MockHttpExpectation(method, url, data, headers, keys),
         chain = {
           respond: function(status, data, headers, statusText) {
             definition.passThrough = undefined;
@@ -1256,6 +1254,53 @@ function createHttpBackendMock($rootScope, $timeout, $delegate, $browser) {
     definitions.push(definition);
     return chain;
   };
+
+  /**
+   * @ngdoc method
+   * @name $httpBackend#whenRoute
+   * @description
+   * Creates a new backend definition that compares only with the requested route.
+   *
+   * @param {string} method HTTP method.
+   * @param {string} url HTTP url string that supports colon param matching.
+   * @returns {requestHandler} Returns an object with `respond` method that controls how a matched
+   * request is handled. You can save this object for later use and invoke `respond` again in
+   * order to change how a matched request is handled. See #when for more info.
+   */
+  $httpBackend.whenRoute = function(method, url) {
+    var pathObj = parseRoute(url);
+    return $httpBackend.when(method, pathObj.regexp, undefined, undefined, pathObj.keys);
+  };
+
+  function parseRoute(url) {
+    var ret = {
+          regexp: url
+        },
+        keys = ret.keys = [];
+
+    if (!url || !angular.isString(url)) return ret;
+
+    url = url
+      .replace(/([().])/g, '\\$1')
+      .replace(/(\/)?:(\w+)([\?\*])?/g, function(_, slash, key, option) {
+        var optional = option === '?' ? option : null;
+        var star = option === '*' ? option : null;
+        keys.push({ name: key, optional: !!optional });
+        slash = slash || '';
+        return ''
+          + (optional ? '' : slash)
+          + '(?:'
+          + (optional ? slash : '')
+          + (star && '(.+?)' || '([^/]+)')
+          + (optional || '')
+          + ')'
+          + (optional || '');
+      })
+      .replace(/([\/$\*])/g, '\\$1');
+
+    ret.regexp = new RegExp('^' + url, 'i');
+    return ret;
+  }
 
   /**
    * @ngdoc method
@@ -1385,6 +1430,22 @@ function createHttpBackendMock($rootScope, $timeout, $delegate, $browser) {
     return chain;
   };
 
+  /**
+   * @ngdoc method
+   * @name $httpBackend#expectRoute
+   * @description
+   * Creates a new request expectation that compares only with the requested route.
+   *
+   * @param {string} method HTTP method.
+   * @param {string} url HTTP url string that supports colon param matching.
+   * @returns {requestHandler} Returns an object with `respond` method that controls how a matched
+   * request is handled. You can save this object for later use and invoke `respond` again in
+   * order to change how a matched request is handled. See #expect for more info.
+   */
+  $httpBackend.expectRoute = function(method, url) {
+    var pathObj = parseRoute(url)
+    return $httpBackend.expect(method, pathObj.regexp, undefined, undefined, pathObj.keys);
+  };
 
   /**
    * @ngdoc method
@@ -1595,98 +1656,10 @@ function createHttpBackendMock($rootScope, $timeout, $delegate, $browser) {
   }
 }
 
-// From angular-route source code, removed 'opts'
-// https://github.com/angular/bower-angular-route/blob/68947cc10d5e21c77fa788661ee9638d96f5b4c9/angular-route.js#L199-L227
-function pathRegExp(path) {
-  var ret = {
-      originalPath: path,
-      regexp: path
-    },
-    keys = ret.keys = [];
-
-  path = path
-    .replace(/([().])/g, '\\$1')
-    .replace(/(\/)?:(\w+)([\?\*])?/g, function(_, slash, key, option) {
-      var optional = option === '?' ? option : null;
-      var star = option === '*' ? option : null;
-      keys.push({ name: key, optional: !!optional });
-      slash = slash || '';
-      return ''
-        + (optional ? '' : slash)
-        + '(?:'
-        + (optional ? slash : '')
-        + (star && '(.+?)' || '([^/]+)')
-        + (optional || '')
-        + ')'
-        + (optional || '');
-    })
-    .replace(/([\/$\*])/g, '\\$1');
-
-  ret.regexp = new RegExp('^' + path, 'i');
-  return ret;
-}
-// From angular-route source code
-// https://github.com/angular/bower-angular-route/blob/68947cc10d5e21c77fa788661ee9638d96f5b4c9/angular-route.js#L517-L536
-function switchRouteMatcher(on, route) {
-  var keys = route.keys,
-      params = {};
-
-  if (!route.regexp) return null;
-
-  var m = route.regexp.exec(on);
-  if (!m) return null;
-
-  for (var i = 1, len = m.length; i < len; ++i) {
-    var key = keys[i - 1];
-
-    var val = m[i];
-
-    if (key && val) {
-      params[key.name] = val;
-    }
-  }
-  return params;
-}
-
-// From angular source code
-// https://github.com/angular/bower-angular/blob/b5cb7d7a36a3a36b171743b7f30619e45c35809a/angular.js#L1238-L1244
-function tryDecodeURIComponent(value) {
-  try {
-    return decodeURIComponent(value);
-  } catch (e) {
-    // Ignore any invalid uri component
-  }
-}
-// https://github.com/angular/bower-angular/blob/b5cb7d7a36a3a36b171743b7f30619e45c35809a/angular.js#L1251-L1270
-function parseKeyValue(keyValue) {
-  var obj = {}, key_value, key;
-  angular.forEach((keyValue || "").split('&'), function(keyValue) {
-    if (keyValue) {
-      key_value = keyValue.replace(/\+/g,'%20').split('=');
-      key = tryDecodeURIComponent(key_value[0]);
-      if (angular.isDefined(key)) {
-        var val = angular.isDefined(key_value[1]) ? tryDecodeURIComponent(key_value[1]) : true;
-        if (!hasOwnProperty.call(obj, key)) {
-          obj[key] = val;
-        } else if (angular.isArray(obj[key])) {
-          obj[key].push(val);
-        } else {
-          obj[key] = [obj[key],val];
-        }
-      }
-    }
-  });
-  return obj;
-}
-
-function MockHttpExpectation(method, url, data, headers) {
+function MockHttpExpectation(method, url, data, headers, keys) {
 
   this.data = data;
   this.headers = headers;
-  if (angular.isString(url)) {
-    this.path = pathRegExp(url);
-    url = this.path.regexp;
-  }
 
   this.match = function(m, u, d, h) {
     if (method != m) return false;
@@ -1721,6 +1694,61 @@ function MockHttpExpectation(method, url, data, headers) {
 
   this.toString = function() {
     return method + ' ' + url;
+  };
+
+  this.params = function(u)
+  {
+    return angular.extend(parseQuery(), pathParams());
+
+    function pathParams() {
+      var keyObj = {};
+      if(!url || !angular.isFunction(url.test) || !keys || keys.length == 0) return keyObj;
+
+      var m = url.exec(u);
+      if(!m) return keyObj;
+
+      for (var i = 1, len = m.length; i < len; ++i) {
+        var key = keys[i - 1];
+        var val = m[i];
+        if (key && val) {
+          keyObj[key.name] = val;
+        }
+      }
+
+      return keyObj;
+    }
+
+    function parseQuery() {
+      var obj = {}, key_value, key,
+          queryStr = u.indexOf('?') > -1
+          ? u.substring(u.indexOf('?') + 1)
+          : "";
+
+      angular.forEach(queryStr.split('&'), function(keyValue) {
+        if (keyValue) {
+          key_value = keyValue.replace(/\+/g,'%20').split('=');
+          key = tryDecodeURIComponent(key_value[0]);
+          if (angular.isDefined(key)) {
+            var val = angular.isDefined(key_value[1]) ? tryDecodeURIComponent(key_value[1]) : true;
+            if (!hasOwnProperty.call(obj, key)) {
+              obj[key] = val;
+            } else if (angular.isArray(obj[key])) {
+              obj[key].push(val);
+            } else {
+              obj[key] = [obj[key],val];
+            }
+          }
+        }
+      });
+      return obj;
+    }
+    function tryDecodeURIComponent(value) {
+      try {
+        return decodeURIComponent(value);
+      } catch (e) {
+        // Ignore any invalid uri component
+      }
+    }
   };
 }
 
